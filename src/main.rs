@@ -85,18 +85,18 @@ const QUAD: &[Vertex] = &[
 
 struct PipelineBuilder<'a> {
     device: &'a wgpu::Device, 
-    config: &'a wgpu::SurfaceConfiguration, 
     bind_groups: Vec<&'a wgpu::BindGroupLayout>, 
     blending: wgpu::BlendState,
     buffers: Vec<wgpu::VertexBufferLayout<'a>>,
     shader_code: &'a str,
+    color_format: wgpu::TextureFormat,
 }
 
 impl<'a> PipelineBuilder<'a> {
-    fn new(device: &'a wgpu::Device, config: &'a wgpu::SurfaceConfiguration, shader_code: &'a str) -> Self {
+    fn new(device: &'a wgpu::Device, color_format: wgpu::TextureFormat, shader_code: &'a str) -> Self {
         PipelineBuilder { 
+            color_format,
             device,
-            config,
             bind_groups: vec![],
             buffers: vec![],
             shader_code,
@@ -145,7 +145,7 @@ impl<'a> PipelineBuilder<'a> {
                 entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState { 
-                        format: self.config.format,
+                        format: self.color_format,
                         blend: Some(self.blending),
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
@@ -492,7 +492,7 @@ impl State {
 
         // Load shader and define pipeline
 
-        let pipeline = PipelineBuilder::new(&device, &config, include_str!("./shader.wgsl"))
+        let pipeline = PipelineBuilder::new(&device, back_texture.format(), include_str!("./shader.wgsl"))
             .with_buffer(Vertex::desc())
             .with_bind_group(&uniform_bind_group_layout)
             .build();
@@ -503,7 +503,7 @@ impl State {
             ..Default::default()
         };
 
-        let pipeline_text = PipelineBuilder::new(&device, &config, include_str!("./shader_text.wgsl"))
+        let pipeline_text = PipelineBuilder::new(&device, text_texture.format(), include_str!("./shader_text.wgsl"))
             .with_buffer(Vertex::desc())
             .with_bind_group(&texture_bind_group_layout)
             .with_blending(wgpu::BlendState { 
@@ -512,7 +512,7 @@ impl State {
             })
             .build();
 
-        let pipeline_post = PipelineBuilder::new(&device, &config, include_str!("./shader_post.wgsl"))
+        let pipeline_post = PipelineBuilder::new(&device, config.format, include_str!("./shader_post.wgsl"))
             .with_buffer(Vertex::desc())
             .with_bind_group(&uniform_bind_group_layout)
             .with_bind_group(&texture_bind_group_layout)
