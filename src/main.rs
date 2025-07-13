@@ -503,7 +503,7 @@ impl State {
             ..Default::default()
         };
 
-        let pipeline_text = PipelineBuilder::new(&device, text_texture.format(), include_str!("./shader_text.wgsl"))
+        let pipeline_text = PipelineBuilder::new(&device, back_texture.format(), include_str!("./shader_text.wgsl"))
             .with_buffer(Vertex::desc())
             .with_bind_group(&texture_bind_group_layout)
             .with_blending(wgpu::BlendState { 
