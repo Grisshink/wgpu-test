@@ -1,5 +1,4 @@
-use ab_glyph::{Font, FontRef};
-use color::{ColorSpace, Hsl};
+use ab_glyph::{FontRef, PxScale};
 use imageproc::{drawing::{draw_text_mut, text_size}, image::{Rgba, RgbaImage}};
 use rand::Rng;
 use wgpu::util::DeviceExt;
@@ -17,7 +16,7 @@ use std::sync::Arc;
 
 fn get_text(text: &str) -> RgbaImage {
     let font = FontRef::try_from_slice(include_bytes!("./IosevkaTermNerdFont-Bold.ttf")).unwrap();
-    let scale = font.pt_to_px_scale(192.0).unwrap();
+    let scale = PxScale::from(256.0);
     let (w, _h) = text_size(scale, &font, text);
 
     let mut img = RgbaImage::new(w, scale.y as u32);
@@ -86,7 +85,7 @@ const QUAD: &[Vertex] = &[
 struct PipelineBuilder<'a> {
     device: &'a wgpu::Device, 
     bind_groups: Vec<&'a wgpu::BindGroupLayout>, 
-    blending: wgpu::BlendState,
+    blending: Option<wgpu::BlendState>,
     buffers: Vec<wgpu::VertexBufferLayout<'a>>,
     shader_code: &'a str,
     color_format: wgpu::TextureFormat,
@@ -100,12 +99,12 @@ impl<'a> PipelineBuilder<'a> {
             bind_groups: vec![],
             buffers: vec![],
             shader_code,
-            blending: wgpu::BlendState::REPLACE,
+            blending: None,
         }
     }
 
     fn with_blending(mut self, blending: wgpu::BlendState) -> Self {
-        self.blending = blending;
+        self.blending = Some(blending);
         self
     }
 
@@ -146,7 +145,7 @@ impl<'a> PipelineBuilder<'a> {
                 targets: &[
                     Some(wgpu::ColorTargetState { 
                         format: self.color_format,
-                        blend: Some(self.blending),
+                        blend: self.blending,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                 ],
@@ -173,6 +172,49 @@ impl<'a> PipelineBuilder<'a> {
     }
 }
 
+fn hue_to_rgb(p: f32, q: f32, mut t: f32) -> f32 {
+    if t < 0.0 {
+        t += 1.0;
+    }
+    if t > 1.0 {
+        t -= 1.0;
+    }
+    if t < 1.0/6.0 {
+        return p + (q - p) * 6.0 * t;
+    }
+    if t < 1.0/2.0 {
+        return q;
+    }
+    if t < 2.0/3.0 {
+        return p + (q - p) * (2.0/3.0 - t) * 6.0;
+    }
+    p
+}
+
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
+    let r: f32;
+    let g: f32;
+    let b: f32;
+
+    if s == 0.0 {
+        r = l;
+        g = l;
+        b = l;
+    } else {
+        let q = if l < 0.5 {
+            l * (1.0 + s)
+        } else { 
+            l + s - l * s
+        };
+        let p = 2.0 * l - q;
+        r = hue_to_rgb(p, q, h + 1.0/3.0);
+        g = hue_to_rgb(p, q, h);
+        b = hue_to_rgb(p, q, h - 1.0/3.0);
+    }
+
+    return [r, g, b];
+}
+
 fn get_back_texture(device: &wgpu::Device, size: (u32, u32)) -> (wgpu::Texture, wgpu::BindGroup) {
     let texture_size = wgpu::Extent3d {
         width: size.0,
@@ -186,7 +228,7 @@ fn get_back_texture(device: &wgpu::Device, size: (u32, u32)) -> (wgpu::Texture, 
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -304,7 +346,7 @@ impl State {
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps.formats.iter()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
 
@@ -343,8 +385,8 @@ impl State {
         let color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Color buffer"),
             contents: bytemuck::cast_slice(&[Colors::new(
-                Hsl::to_linear_srgb([rng.random_range(0.0..360.0), rng.random_range(0.0..100.0), 10.0]),
-                Hsl::to_linear_srgb([rng.random_range(0.0..360.0), rng.random_range(0.0..100.0), 70.0]),
+                hsl_to_rgb(rng.random_range(0.0..1.0), rng.random_range(0.0..1.0), 0.1),
+                hsl_to_rgb(rng.random_range(0.0..1.0), rng.random_range(0.0..1.0), 0.7),
             )]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -377,7 +419,7 @@ impl State {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
